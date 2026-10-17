@@ -1,0 +1,366 @@
+{
+  "name": "Recomendação de Investimentos",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "Clientes",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1520,
+        -400
+      ],
+      "id": "fa8bf842-e5a5-4e19-b2fa-3ab9de16c51c",
+      "name": "Webhook",
+      "webhookId": "15f457ad-5e17-4b2c-9c78-de2eadd9a31f"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        928,
+        -400
+      ],
+      "id": "6768bae9-45ac-43cf-ba21-80db72e117b5",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "url": "https://raw.githubusercontent.com/soaresaj/dio-lab-assistente-investimentos-rpa-n8n/refs/heads/main/docs/data.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -1344,
+        -256
+      ],
+      "id": "a2d9857f-0510-4882-ac8a-a592933190d6",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega o CSV como texto vindo do HTTP Request\nconst csvRaw = $json.data ?? $json.body ?? $json;\nconst text = (typeof csvRaw === \"string\") ? csvRaw : JSON.stringify(csvRaw);\n\nconst lines = text.split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\nconst headers = lines[0].split(\",\").map(h => h.trim());\n\nconst investimentos = lines.slice(1).map(line => {\n  const cols = line.split(\",\").map(c => c.trim());\n  const obj = {};\n  headers.forEach((h, i) => obj[h] = cols[i] ?? \"\");\n  \n  // normaliza mínimo para número\n  obj.mínimo = Number(String(obj.mínimo).replace(/[^\\d]/g, \"\")) || 0;\n  \n  return obj;\n});\n\nreturn [{ json: { investimentos } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1168,
+        -256
+      ],
+      "id": "e1e1b5be-b03c-4ff2-a90d-21e46f0e1c3f",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -976,
+        -384
+      ],
+      "id": "88768e94-b673-4765-a239-12f4923bef65",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Dados recebidos (clientes + investimentos)\nconst clientes = $json.body.clientes;\nconst investimentos = $json.investimentos;\n\n// Função para normalizar saldo (transformar \"R$ 12.500,00\" em número)\nfunction normalizarSaldo(saldoStr) {\n  return Number(\n    saldoStr.replace(/[^\\d]/g, \"\") // remove caracteres não numéricos\n  );\n}\n\n// Gera recomendações\nconst mensagens = clientes.map(cliente => {\n  const saldo = normalizarSaldo(cliente.saldo);\n\n  // Filtra investimentos compatíveis com o perfil e saldo\n  const opcoes = investimentos.filter(inv =>\n    inv.perfil === cliente.perfil &&\n    saldo >= Number(inv.minimo)\n  );\n\n  // Monta mensagem\n  if (opcoes.length > 0) {\n    const recomendacao = opcoes[0]; // pega a primeira opção válida\n    return {\n      nome: cliente.nome,\n      email: cliente.email,\n      perfil: cliente.perfil,\n      saldo: cliente.saldo,\n      mensagem: `Olá ${cliente.nome}! Pelo seu perfil (${cliente.perfil}), uma boa opção é o **${recomendacao.produto}** (mínimo R$ ${recomendacao.minimo}). Com seu saldo atual (${cliente.saldo}), você já consegue investir. Rentabilidade: ${recomendacao.rentabilidade}.`\n    };\n  } else {\n    return {\n      nome: cliente.nome,\n      email: cliente.email,\n      perfil: cliente.perfil,\n      saldo: cliente.saldo,\n      mensagem: `Olá ${cliente.nome}! Infelizmente, com seu saldo atual (${cliente.saldo}), não encontramos opções disponíveis para o perfil ${cliente.perfil}.`\n    };\n  }\n});\n\n// Retorna resultado para o n8n\nreturn [{ json: { mensagens } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        -384
+      ],
+      "id": "28c2a3a3-0a58-4981-9ef1-687d5798ce41",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Função para normalizar saldo (ex.: \"R$ 12.500,00\" -> 12500)\nfunction normalizarSaldo(saldoStr) {\n  return Number(saldoStr.replace(/[^\\d]/g, \"\"));\n}\n\n// Base de regras de copy (padrão para todas as mensagens)\nconst copyRules = {\n  idioma: \"pt-BR\",\n  tom: \"amigável e profissional\",\n  tamanho: \"curto (4-6 linhas)\",\n  evitar: [\n    \"promessas de ganho\",\n    \"garantias\",\n    \"linguagem agressiva\"\n  ]\n};\n\n// Processa cada mensagem\nconst mensagensProcessadas = $json.mensagens.map(m => {\n  const saldoNum = normalizarSaldo(m.saldo);\n\n  // Extrai produto e rentabilidade da mensagem original\n  const produtoMatch = m.mensagem.match(/\\*\\*(.*?)\\*\\*/);\n  const produto = produtoMatch ? produtoMatch[1] : \"Produto não identificado\";\n\n  const rentabilidadeMatch = m.mensagem.match(/Rentabilidade:\\s*([^\\.\\n]+)/);\n  const rentabilidade = rentabilidadeMatch ? rentabilidadeMatch[1] : \"N/A\";\n\n  // Extrai mínimo (número após \"mínimo R$\")\n  const minimoMatch = m.mensagem.match(/mínimo R\\$ ([\\d\\.]+)/);\n  const minimo = minimoMatch ? Number(minimoMatch[1].replace(/\\./g, \"\")) : 0;\n\n  // Define motivo\n  const motivo = saldoNum >= minimo ? \"saldo_ok\" : \"saldo_insuficiente\";\n\n  return {\n    email_to: m.email,\n    nome: m.nome,\n    perfil: m.perfil,\n    saldo_texto: m.saldo,\n    saldo_num: saldoNum,\n    recomendacao: {\n      perfil: m.perfil,\n      produto,\n      mínimo: minimo,\n      rentabilidade\n    },\n    motivo,\n    mensagem_base: m.mensagem,\n    copy_rules: copyRules\n  };\n});\n\n// Retorna resultado para o n8n\nreturn [{ json: { mensagensProcessadas } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -576,
+        -384
+      ],
+      "id": "825c41fa-3eff-4fdb-80b9-3be36a99b494",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// O input é um array com um objeto\nconst input = $json;\n\n// Pega o primeiro item do array\nconst firstItem = Array.isArray(input) ? input[0] : input;\n\n// Garante que existe o campo content.parts[0].text\nif (!firstItem.content || !firstItem.content.parts || !firstItem.content.parts[0]) {\n  throw new Error(\"Estrutura inesperada no input: não encontrei content.parts[0].text\");\n}\n\n// Extrai o texto bruto\nconst rawText = firstItem.content.parts[0].text;\n\n// Remove delimitadores ```json e ```\nconst cleaned = rawText.replace(/```json/, \"\").replace(/```/, \"\").trim();\n\n// Converte para array de objetos\nlet emails;\ntry {\n  emails = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error(\"Erro ao converter o texto em JSON: \" + e.message);\n}\n\n// Retorna cada objeto como item separado no output\nreturn emails.map(e => ({ json: e }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        -384
+      ],
+      "id": "787e393a-2070-47d1-9091-c24b66eff7ed",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a1de8bab-7b7d-4f3c-ac52-c22651722b1a",
+              "leftValue": "={{ $json.email_to }}",
+              "rightValue": "^[^\\s@]+@gmail\\.com$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        384,
+        -384
+      ],
+      "id": "3c6327e9-f4f2-48f8-8e74-8690f073303b",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Você é um assistente que escreve e-mails profissionais em português (pt-BR).\nUse tom amigável e profissional, em 4 a 6 linhas, evitando promessas de ganho, garantias ou linguagem agressiva.\n\nVocê está recebendo uma lista de clientes com os seguintes dados:\n- nome\n- email_to\n- perfil\n- saldo_texto\n- recomendacao (produto, mínimo, rentabilidade)\n- mensagem_base (texto base para inspiração)\n- copy_rules (idioma, tom, tamanho, evitar)\n\nPara cada cliente:\n1. Crie um assunto de e-mail claro e direto, por exemplo: \"Sugestão de Investimento: [produto]\".\n2. Crie o corpo do e-mail em texto simples (body), usando a mensagem_base como referência e aplicando as regras de copy_rules.\n3. Crie também a versão em HTML (html) com formatação básica (<p>, <strong>, <br>) para o mesmo conteúdo.\n4. Inclua o campo email_to com o endereço do cliente.\n\nFormato de saída:\nUm único array JSON, onde cada cliente é um objeto separado com os campos:\n- subject\n- email_to\n- body\n- html\n\nExemplo de saída:\n[\n  {\n    \"subject\": \"Sugestão de Investimento: Poupança\",\n    \"email_to\": \"ana@email.com\",\n    \"body\": \"Texto do corpo do e-mail em texto simples\",\n    \"html\": \"<p>Versão HTML do corpo do e-mail</p>\"\n  },\n  {\n    \"subject\": \"Sugestão de Investimento: CDB Prefixado\",\n    \"email_to\": \"bruno@email.com\",\n    \"body\": \"Texto do corpo do e-mail em texto simples\",\n    \"html\": \"<p>Versão HTML do corpo do e-mail</p>\"\n  }\n]\nNão acrescente nenhuma informação adicional a sua resposta. Apenas gerar o json no formato solicitado, com as informações do email para cada cliente sendo um objeto separado no json de resposta, conforme exemplo a seguir:\n[\n{\n\"subject\": \"Sugestão de Investimento: Poupança\",\n\"email_to\": \"ana@email.com\",\n\"body\": \"Olá Ana Silva!\\n\\nPelo seu perfil (Conservador), uma boa opção é o Poupança (mínimo R$ 100). Com seu saldo atual (R$ 12.500,00), você já consegue investir.\\n\\nAtenciosamente,\\nSua equipe de investimentos\",\n\"html\": \"Olá Ana Silva,Pelo seu perfil (Conservador), uma boa opção é o Poupança (mínimo R$ 100). Com seu saldo atual (R$ 12.500,00), você já consegue investir.Atenciosamente,\n\n\nSua equipe de investimentos\"\n},\n{\n\"subject\": \"Sugestão de Investimento: CDB Prefixado\",\n\"email_to\": \"bruno@email.com\",\n\"body\": \"Olá Bruno Lima!\\n\\nPelo seu perfil (Moderado), uma boa opção é o CDB Prefixado (mínimo R$ 1000). Com seu saldo atual (R$ 3.200,00), você já consegue investir.\\n\\nAtenciosamente,\\nSua equipe de investimentos\",\n\"html\": \"Olá Bruno Lima,Pelo seu perfil (Moderado), uma boa opção é o CDB Prefixado (mínimo R$ 1000). Com seu saldo atual (R$ 3.200,00), você já consegue investir.Atenciosamente,\n\n\nSua equipe de investimentos\"\n},\n{\n\"subject\": \"Sugestão de Investimento: Ações ETF\",\n\"email_to\": \"carla@email.com\",\n\"body\": \"Olá Carla Souza!\\n\\nPelo seu perfil (Arrojado), uma boa opção é o Ações ETF (mínimo R$ 500). Com seu saldo atual (R$ 28.900,00), você já consegue investir.\\n\\nAtenciosamente,\\nSua equipe de investimentos\",\n\"html\": \"Olá Carla Souza,Pelo seu perfil (Arrojado), uma boa opção é o Ações ETF (mínimo R$ 500). Com seu saldo atual (R$ 28.900,00), você já consegue investir.Atenciosamente,\n\n\nSua equipe de investimentos\"\n},\n{\n\"subject\": \"Sugestão de Investimento: Poupança\",\n\"email_to\": \"daniel@email.com\",\n\"body\": \"Olá Daniel Oliveira!\\n\\nPelo seu perfil (Conservador), uma boa opção é o Poupança (mínimo R$ 100). Com seu saldo atual (R$ 850,00), você já consegue investir.\\n\\nAtenciosamente,\\nSua equipe de investimentos\",\n\"html\": \"Olá Daniel Oliveira,Pelo seu perfil (Conservador), uma boa opção é o Poupança (mínimo R$ 100). Com seu saldo atual (R$ 850,00), você já consegue investir.Atenciosamente,\n\n\nSua equipe de investimentos\"\n},\n{\n\"subject\": \"Sugestão de Investimento: Ações ETF\",\n\"email_to\": \"elena@email.com\",\n\"body\": \"Olá Elena Rodrigues!\\n\\nPelo seu perfil (Arrojado), uma boa opção é o Ações ETF (mínimo R$ 500). Com seu saldo atual (R$ 45.000,00), você já consegue investir.\\n\\nAtenciosamente,\\nSua equipe de investimentos\",\n\"html\": \"Olá Elena Rodrigues,Pelo seu perfil (Arrojado), uma boa opção é o Ações ETF (mínimo R$ 500). Com seu saldo atual (R$ 45.000,00), você já consegue investir.Atenciosamente,\n\n\nSua equipe de investimentos\"\n},\n{\n\"subject\": \"Sugestão de Investimento: CDB Prefixado\",\n\"email_to\": \"felipe@email.com\",\n\"body\": \"Olá Felipe Santos!\\n\\nPelo seu perfil (Moderado), uma boa opção é o CDB Prefixado (mínimo R$ 1000). Com seu saldo atual (R$ 7.800,00), você já consegue investir.\\n\\nAtenciosamente,\\nSua equipe de investimentos\",\n\"html\": \"Olá Felipe Santos,Pelo seu perfil (Moderado), uma boa opção é o CDB Prefixado (mínimo R$ 1000). Com seu saldo atual (R$ 7.800,00), você já consegue investir.Atenciosamente,\n\n\nSua equipe de investimentos\"\n},\n{\n\"subject\": \"Sugestão de Investimento: Poupança\",\n\"email_to\": \"gabriela@email.com\",\n\"body\": \"Olá Gabriela Costa!\\n\\nPelo seu perfil (Conservador), uma boa opção é o Poupança (mínimo R$ 100). Com seu saldo atual (R$ 1.500,00), você já consegue investir.\\n\\nAtenciosamente,\\nSua equipe de investimentos\",\n\"html\": \"Olá Gabriela Costa,Pelo seu perfil (Conservador), uma boa opção é o Poupança (mínimo R$ 100). Com seu saldo atual (R$ 1.500,00), você já consegue investir.Atenciosamente,\n\n\nSua equipe de investimentos\"\n},\n{\n\"subject\": \"Sugestão de Investimento: CDB Prefixado\",\n\"email_to\": \"henrique@email.com\",\n\"body\": \"Olá Henrique Alves!\\n\\nPelo seu perfil (Moderado), uma boa opção é o CDB Prefixado (mínimo R$ 1000). Com seu saldo atual (R$ 22.300,00), você já consegue investir.\\n\\nAtenciosamente,\\nSua equipe de investimentos\",\n\"html\": \"Olá Henrique Alves,Pelo seu perfil (Moderado), uma boa opção é o CDB Prefixado (mínimo R$ 1000). Com seu saldo atual (R$ 22.300,00), você já consegue investir.Atenciosamente,\n\n\nSua equipe de investimentos\"\n},\n{\n\"subject\": \"Sugestão de Investimento: Poupança\",\n\"email_to\": \"isabela@email.com\",\n\"body\": \"Olá Isabela Martins!\\n\\nPelo seu perfil (Conservador), uma boa opção é o Poupança (mínimo R$ 100). Com seu saldo atual (R$ 500,00), você já consegue investir.\\n\\nAtenciosamente,\\nSua equipe de investimentos\",\n\"html\": \"Olá Isabela Martins,Pelo seu perfil (Conservador), uma boa opção é o Poupança (mínimo R$ 100). Com seu saldo atual (R$ 500,00), você já consegue investir.Atenciosamente,\n\n\nSua equipe de investimentos\"\n},\n{\n\"subject\": \"Sugestão de Investimento: Ações ETF\",\n\"email_to\": \"joao@email.com\",\n\"body\": \"Olá João Pereira!\\n\\nPelo seu perfil (Arrojado), uma boa opção é o Ações ETF (mínimo R$ 500). Com seu saldo atual (R$ 15.000,00), você já consegue investir.\\n\\nAtenciosamente,\\nSua equipe de investimentos\",\n\"html\": \"Olá João Pereira,Pelo seu perfil (Arrojado), uma boa opção é o Ações ETF (mínimo R$ 500). Com seu saldo atual (R$ 15.000,00), você já consegue investir.Atenciosamente,\n\n\nSua equipe de investimentos\"\n}\n]"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        -352,
+        -384
+      ],
+      "id": "f625199e-3446-4df4-afae-361722c1a3c6",
+      "name": "Message a model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "uxGyjyQCeYTQJvnr",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email_to }}",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        656,
+        -400
+      ],
+      "id": "e2a4b03e-5d41-4481-92dc-b4a7d62e6206",
+      "name": "Send a message",
+      "webhookId": "767ebb26-d1d1-4f04-a98b-505355fbfaed",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "uPHyWlQqO90BAQfM",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================\n// SUBSTITUIÇÃO DE EMAIL ESPECÍFICO\n// ============================================\n\nconst items = $input.all();\n\nconst EMAIL_ORIGINAL = 'joao@email.com';\nconst EMAIL_NOVO = 'soaresaj62@gmail.com';\n\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    email_to: item.json.email_to === EMAIL_ORIGINAL\n      ? EMAIL_NOVO\n      : item.json.email_to\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        -384
+      ],
+      "id": "9bed1d4d-5af9-42b2-98e8-a9122855a450",
+      "name": "Code in JavaScript4"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Message a model1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Message a model1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "811054ff-7b6e-41a1-8923-c8f2ab7fddff",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "48390998aba252c9c32f958a00ba4a41ba818e73a7f87a543051091c7d4fb06a"
+  },
+  "id": "UjzfJiNMbBRgnK04",
+  "tags": []
+}
